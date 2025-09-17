@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Search, Filter, Key, Clock, CheckCircle, AlertTriangle, Plus, Trash, User } from 'lucide-react';
-import { chaves, getDashboardStats, filtrarChaves, getUltimoRegistro, getUsuarioById, removerChave } from '@/lib/data';
+import { getDashboardStats, filtrarChaves, getUltimoRegistro, getUsuarioById } from '@/lib/supabase-data';
 import { Chave, DashboardStats, Usuario } from '@/lib/types';
 
 interface DashboardProps {
@@ -9,9 +9,10 @@ interface DashboardProps {
   onCadastrarChave: () => void;
   onGerenciarUsuarios: () => void;
   onRemoverChave: (chaveId: string) => void;
+  chaves: Chave[];
 }
 
-export default function Dashboard({ usuario, onVerDetalhes, onCadastrarChave, onGerenciarUsuarios, onRemoverChave }: DashboardProps) {
+export default function Dashboard({ usuario, onVerDetalhes, onCadastrarChave, onGerenciarUsuarios, onRemoverChave, chaves }: DashboardProps) {
   const [filtroAtivo, setFiltroAtivo] = useState<'todas' | 'disponiveis' | 'em_uso' | 'atrasadas'>('todas');
   const [busca, setBusca] = useState('');
   const [tipoFiltro, setTipoFiltro] = useState('todos');
@@ -19,11 +20,11 @@ export default function Dashboard({ usuario, onVerDetalhes, onCadastrarChave, on
   const [chavesFiltradas, setChavesFiltradas] = useState<Chave[]>([]);
 
   // Função para atualizar dados
-  const atualizarDados = () => {
-    const novasStats = getDashboardStats();
+  const atualizarDados = async () => {
+    const novasStats = await getDashboardStats();
     setStats(novasStats);
     
-    const chavesFiltradas = filtrarChaves({
+    const chavesFiltradas = await filtrarChaves({
       status: filtroAtivo,
       busca,
       tipo: tipoFiltro
@@ -33,7 +34,7 @@ export default function Dashboard({ usuario, onVerDetalhes, onCadastrarChave, on
 
   useEffect(() => {
     atualizarDados();
-  }, [filtroAtivo, busca, tipoFiltro]);
+  }, [filtroAtivo, busca, tipoFiltro, chaves]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -63,9 +64,9 @@ export default function Dashboard({ usuario, onVerDetalhes, onCadastrarChave, on
     }
   };
 
-  const isChaveAtrasada = (chave: Chave) => {
+  const isChaveAtrasada = async (chave: Chave) => {
     if (chave.status !== 'em_uso') return false;
-    const ultimoRegistro = getUltimoRegistro(chave.id);
+    const ultimoRegistro = await getUltimoRegistro(chave.id);
     if (!ultimoRegistro || ultimoRegistro.acao !== 'retirada') return false;
     const agora = new Date();
     const horasEmUso = (agora.getTime() - ultimoRegistro.dataHora.getTime()) / (1000 * 60 * 60);
@@ -79,16 +80,7 @@ export default function Dashboard({ usuario, onVerDetalhes, onCadastrarChave, on
     }
 
     if (confirm('Tem certeza que deseja remover esta chave? Esta ação não pode ser desfeita.')) {
-      const sucesso = removerChave(chaveId, usuario);
-      if (sucesso) {
-        alert('Chave removida com sucesso!');
-        // Atualizar dados após remoção
-        atualizarDados();
-        // Chamar callback do componente pai
-        onRemoverChave(chaveId);
-      } else {
-        alert('Erro ao remover a chave. Tente novamente.');
-      }
+      onRemoverChave(chaveId);
     }
   };
 
@@ -248,64 +240,113 @@ export default function Dashboard({ usuario, onVerDetalhes, onCadastrarChave, on
               </div>
             ) : (
               chavesFiltradas.map((chave) => {
-                const ultimoRegistro = getUltimoRegistro(chave.id);
-                const usuarioComChave = ultimoRegistro && ultimoRegistro.acao === 'retirada' 
-                  ? getUsuarioById(ultimoRegistro.usuarioId) 
-                  : null;
-                const atrasada = isChaveAtrasada(chave);
-
                 return (
-                  <div key={chave.id} className="p-6 hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-4">
-                        <div className="text-2xl">{getTipoIcon(chave.tipo)}</div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-semibold text-gray-900">{chave.codigoImovel}</h3>
-                            {atrasada && (
-                              <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded-full">
-                                ATRASADA
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-gray-600">{chave.endereco}</p>
-                          <div className="flex items-center gap-4 mt-1">
-                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(chave.status)}`}>
-                              {getStatusText(chave.status)}
-                            </span>
-                            <span className="text-sm text-gray-500">Armário: {chave.armario}</span>
-                            {usuarioComChave && (
-                              <span className="text-sm text-gray-500">
-                                Com: {usuarioComChave.nome}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => onVerDetalhes(chave)}
-                          className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors"
-                        >
-                          Ações
-                        </button>
-                        {isAdmin && (
-                          <button
-                            onClick={() => handleRemoverChave(chave.id)}
-                            className="bg-red-600 text-white px-3 py-2 rounded-lg font-medium hover:bg-red-700 transition-colors flex items-center gap-1"
-                            title="Remover chave"
-                          >
-                            <Trash className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  <ChaveItem
+                    key={chave.id}
+                    chave={chave}
+                    onVerDetalhes={onVerDetalhes}
+                    onRemoverChave={handleRemoverChave}
+                    isAdmin={isAdmin}
+                    getTipoIcon={getTipoIcon}
+                    getStatusColor={getStatusColor}
+                    getStatusText={getStatusText}
+                  />
                 );
               })
             )}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Componente separado para cada item de chave
+function ChaveItem({ 
+  chave, 
+  onVerDetalhes, 
+  onRemoverChave, 
+  isAdmin, 
+  getTipoIcon, 
+  getStatusColor, 
+  getStatusText 
+}: {
+  chave: Chave;
+  onVerDetalhes: (chave: Chave) => void;
+  onRemoverChave: (chaveId: string) => void;
+  isAdmin: boolean;
+  getTipoIcon: (tipo: string) => string;
+  getStatusColor: (status: string) => string;
+  getStatusText: (status: string) => string;
+}) {
+  const [ultimoRegistro, setUltimoRegistro] = useState<any>(null);
+  const [usuarioComChave, setUsuarioComChave] = useState<any>(null);
+  const [atrasada, setAtrasada] = useState(false);
+
+  useEffect(() => {
+    const carregarDados = async () => {
+      const registro = await getUltimoRegistro(chave.id);
+      setUltimoRegistro(registro);
+      
+      if (registro && registro.acao === 'retirada') {
+        const usuario = await getUsuarioById(registro.usuarioId);
+        setUsuarioComChave(usuario);
+        
+        // Verificar se está atrasada
+        const agora = new Date();
+        const horasEmUso = (agora.getTime() - registro.dataHora.getTime()) / (1000 * 60 * 60);
+        setAtrasada(horasEmUso > 24);
+      }
+    };
+
+    carregarDados();
+  }, [chave.id]);
+
+  return (
+    <div className="p-6 hover:bg-gray-50 transition-colors">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-4">
+          <div className="text-2xl">{getTipoIcon(chave.tipo)}</div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-gray-900">{chave.codigoImovel}</h3>
+              {atrasada && (
+                <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded-full">
+                  ATRASADA
+                </span>
+              )}
+            </div>
+            <p className="text-gray-600">{chave.endereco}</p>
+            <div className="flex items-center gap-4 mt-1">
+              <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(chave.status)}`}>
+                {getStatusText(chave.status)}
+              </span>
+              <span className="text-sm text-gray-500">Armário: {chave.armario}</span>
+              {usuarioComChave && (
+                <span className="text-sm text-gray-500">
+                  Com: {usuarioComChave.nome}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex space-x-2">
+          <button
+            onClick={() => onVerDetalhes(chave)}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+          >
+            Ações
+          </button>
+          {isAdmin && (
+            <button
+              onClick={() => onRemoverChave(chave.id)}
+              className="bg-red-600 text-white px-3 py-2 rounded-lg font-medium hover:bg-red-700 transition-colors flex items-center gap-1"
+              title="Remover chave"
+            >
+              <Trash className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </div>
