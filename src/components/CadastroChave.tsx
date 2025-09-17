@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ArrowLeft, Plus, QrCode, Save, Trash, Key, MapPin } from 'lucide-react';
 import { Chave, Usuario } from '@/lib/types';
-import { chaves, removerChave } from '@/lib/data';
+import { adicionarChave, getChaves, removerChaveSupabase } from '@/lib/supabase-data';
 
 interface CadastroChaveProps {
   onVoltar: () => void;
@@ -19,6 +19,7 @@ export default function CadastroChave({ onVoltar, onChaveCadastrada, usuario }: 
   const [carregando, setCarregando] = useState(false);
   const [qrCodeGerado, setQrCodeGerado] = useState('');
   const [mostrarLista, setMostrarLista] = useState(false);
+  const [chaves, setChaves] = useState<Chave[]>([]);
 
   if (!usuario || usuario.cargo !== 'admin') {
     return (
@@ -36,6 +37,11 @@ export default function CadastroChave({ onVoltar, onChaveCadastrada, usuario }: 
       </div>
     );
   }
+
+  const carregarChaves = async () => {
+    const chavesData = await getChaves();
+    setChaves(chavesData);
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -63,54 +69,54 @@ export default function CadastroChave({ onVoltar, onChaveCadastrada, usuario }: 
       return;
     }
 
-    // Verificar se já existe uma chave com o mesmo código
-    const chaveExistente = chaves.find(c => c.codigoImovel === formData.codigoImovel);
-    if (chaveExistente) {
-      alert('Já existe uma chave cadastrada com este código');
-      return;
-    }
-
     setCarregando(true);
 
-    // Simular delay de cadastro
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    try {
+      const novaChave = await adicionarChave({
+        codigoImovel: formData.codigoImovel,
+        endereco: formData.endereco,
+        tipo: formData.tipo,
+        armario: formData.armario,
+        status: 'disponivel',
+        qrCode: qrCodeGerado || `QR_${formData.codigoImovel}`
+      });
 
-    const novaChave: Chave = {
-      id: Date.now().toString(),
-      codigoImovel: formData.codigoImovel,
-      endereco: formData.endereco,
-      tipo: formData.tipo,
-      armario: formData.armario,
-      status: 'disponivel',
-      qrCode: qrCodeGerado || `QR_${formData.codigoImovel}`,
-      criadoEm: new Date(),
-      atualizadoEm: new Date()
-    };
-
-    // Adicionar à lista de chaves
-    chaves.push(novaChave);
-    
-    setCarregando(false);
-    onChaveCadastrada(novaChave);
+      if (novaChave) {
+        setCarregando(false);
+        onChaveCadastrada(novaChave);
+      } else {
+        setCarregando(false);
+        alert('Erro ao cadastrar chave. Verifique se o código não está duplicado.');
+      }
+    } catch (error) {
+      setCarregando(false);
+      console.error('Erro ao cadastrar chave:', error);
+      alert('Erro ao cadastrar chave. Tente novamente.');
+    }
   };
 
-  const handleDelete = (chaveId: string) => {
+  const handleDelete = async (chaveId: string) => {
     const chave = chaves.find(c => c.id === chaveId);
     if (!chave) {
       alert('Chave não encontrada.');
       return;
     }
     if (confirm(`Tem certeza que deseja excluir a chave ${chave.codigoImovel}?`)) {
-      const sucesso = removerChave(chave.id, usuario!);
+      const sucesso = await removerChaveSupabase(chave.id);
       if (sucesso) {
         alert('Chave excluída com sucesso!');
-        // Forçar re-render da lista
-        setMostrarLista(false);
-        setTimeout(() => setMostrarLista(true), 100);
+        await carregarChaves(); // Recarregar lista
       } else {
-        alert('Erro ao excluir a chave. Verifique suas permissões.');
+        alert('Erro ao excluir a chave.');
       }
     }
+  };
+
+  const handleMostrarLista = async () => {
+    if (!mostrarLista) {
+      await carregarChaves();
+    }
+    setMostrarLista(!mostrarLista);
   };
 
   const getTipoIcon = (tipo: string) => {
@@ -127,7 +133,7 @@ export default function CadastroChave({ onVoltar, onChaveCadastrada, usuario }: 
     switch (status) {
       case 'disponivel': return 'bg-green-100 text-green-800';
       case 'em_uso': return 'bg-orange-100 text-orange-800';
-      case 'atrasada': return 'bg-red-100 text-red-800';
+      case 'manutencao': return 'bg-red-100 text-red-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -136,7 +142,7 @@ export default function CadastroChave({ onVoltar, onChaveCadastrada, usuario }: 
     switch (status) {
       case 'disponivel': return 'Disponível';
       case 'em_uso': return 'Em uso';
-      case 'atrasada': return 'Atrasada';
+      case 'manutencao': return 'Manutenção';
       default: return 'Desconhecido';
     }
   };
@@ -161,7 +167,7 @@ export default function CadastroChave({ onVoltar, onChaveCadastrada, usuario }: 
             </div>
             <div className="flex gap-2">
               <button
-                onClick={() => setMostrarLista(!mostrarLista)}
+                onClick={handleMostrarLista}
                 className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
               >
                 <Key className="w-4 h-4" />
@@ -214,12 +220,6 @@ export default function CadastroChave({ onVoltar, onChaveCadastrada, usuario }: 
                         </div>
                         
                         <div className="flex items-center space-x-2">
-                          <button
-                            onClick={() => alert(`Ações para ${chave.codigoImovel}`)}
-                            className="bg-blue-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-600 transition-colors"
-                          >
-                            Ações
-                          </button>
                           <button
                             onClick={() => handleDelete(chave.id)}
                             className="bg-red-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-600 transition-colors flex items-center gap-2"
