@@ -1,7 +1,10 @@
+'use client';
+
 import { useState, useEffect } from 'react';
 import { Trash, Plus, ArrowLeft } from 'lucide-react';
 import { Usuario } from '@/lib/types';
 import { getUsuarios, adicionarUsuario, removerUsuarioSupabase, escutarMudancasUsuarios } from '@/lib/supabase-data';
+import NotificacaoSalvamento from '@/components/NotificacaoSalvamento';
 
 interface GerenciarUsuariosProps {
   onVoltar: () => void;
@@ -12,10 +15,17 @@ export default function GerenciarUsuarios({ onVoltar, usuario }: GerenciarUsuari
   const [listaUsuarios, setListaUsuarios] = useState<Usuario[]>([]);
   const [novoUsuario, setNovoUsuario] = useState({ nome: '', email: '', senha: '', cargo: 'corretor' as 'corretor' | 'admin' });
   const [carregando, setCarregando] = useState(false);
+  const [mostrarNotificacao, setMostrarNotificacao] = useState(false);
+  const [tipoNotificacao, setTipoNotificacao] = useState<'sucesso' | 'erro'>('sucesso');
+  const [mensagemNotificacao, setMensagemNotificacao] = useState('');
+  const [usuarioParaRemover, setUsuarioParaRemover] = useState<{id: string, nome: string} | null>(null);
+  const [removendoUsuario, setRemovendoUsuario] = useState(false);
 
   useEffect(() => {
     const carregarUsuarios = async () => {
+      console.log('🔄 Carregando usuários...');
       const usuarios = await getUsuarios();
+      console.log('✅ Usuários carregados:', usuarios.length);
       setListaUsuarios(usuarios);
     };
 
@@ -23,6 +33,7 @@ export default function GerenciarUsuarios({ onVoltar, usuario }: GerenciarUsuari
 
     // Escutar mudanças em tempo real
     const unsubscribe = escutarMudancasUsuarios((novosUsuarios) => {
+      console.log('🔄 Usuários atualizados em tempo real:', novosUsuarios.length);
       setListaUsuarios(novosUsuarios);
     });
 
@@ -30,6 +41,13 @@ export default function GerenciarUsuarios({ onVoltar, usuario }: GerenciarUsuari
       unsubscribe();
     };
   }, []);
+
+  const mostrarNotificacaoTemporaria = (tipo: 'sucesso' | 'erro', mensagem: string) => {
+    setTipoNotificacao(tipo);
+    setMensagemNotificacao(mensagem);
+    setMostrarNotificacao(true);
+    setTimeout(() => setMostrarNotificacao(false), 3000);
+  };
 
   if (!usuario || usuario.cargo !== 'admin') {
     return (
@@ -53,11 +71,12 @@ export default function GerenciarUsuarios({ onVoltar, usuario }: GerenciarUsuari
       // Verificar se email já existe
       const emailExiste = listaUsuarios.find(u => u.email === novoUsuario.email);
       if (emailExiste) {
-        alert('Já existe um usuário com este email.');
+        mostrarNotificacaoTemporaria('erro', 'Já existe um usuário com este email.');
         return;
       }
 
       setCarregando(true);
+      console.log('💾 Adicionando novo usuário...');
 
       const usuarioAdicionado = await adicionarUsuario({
         nome: novoUsuario.nome,
@@ -69,35 +88,122 @@ export default function GerenciarUsuarios({ onVoltar, usuario }: GerenciarUsuari
 
       if (usuarioAdicionado) {
         setNovoUsuario({ nome: '', email: '', senha: '', cargo: 'corretor' });
-        alert('Usuário adicionado com sucesso!');
+        mostrarNotificacaoTemporaria('sucesso', `Usuário "${usuarioAdicionado.nome}" adicionado com sucesso!`);
+        console.log('✅ Usuário adicionado com sucesso');
+        
+        // Recarregar lista para garantir sincronização
+        const usuariosAtualizados = await getUsuarios();
+        setListaUsuarios(usuariosAtualizados);
       } else {
-        alert('Erro ao adicionar usuário. Verifique se o email não está duplicado.');
+        mostrarNotificacaoTemporaria('erro', 'Erro ao adicionar usuário. Verifique se o email não está duplicado.');
       }
 
       setCarregando(false);
     } else {
-      alert('Por favor, preencha todos os campos.');
+      mostrarNotificacaoTemporaria('erro', 'Por favor, preencha todos os campos.');
     }
   };
 
-  const handleRemoverUsuario = async (usuarioId: string) => {
+  const iniciarRemocaoUsuario = (usuarioId: string, nomeUsuario: string) => {
     if (usuarioId === usuario.id) {
-      alert('Você não pode remover seu próprio usuário.');
+      mostrarNotificacaoTemporaria('erro', 'Você não pode remover seu próprio usuário.');
       return;
     }
+    console.log('🗑️ Iniciando remoção do usuário:', nomeUsuario);
+    setUsuarioParaRemover({ id: usuarioId, nome: nomeUsuario });
+  };
 
-    if (confirm('Tem certeza que deseja remover este usuário?')) {
-      const sucesso = await removerUsuarioSupabase(usuarioId);
+  const confirmarRemocaoUsuario = async () => {
+    if (!usuarioParaRemover) return;
+
+    setRemovendoUsuario(true);
+    console.log('🗑️ Confirmando remoção do usuário:', usuarioParaRemover.nome);
+    
+    try {
+      const sucesso = await removerUsuarioSupabase(usuarioParaRemover.id);
+      
       if (sucesso) {
-        alert('Usuário removido com sucesso!');
+        mostrarNotificacaoTemporaria('sucesso', `Usuário "${usuarioParaRemover.nome}" removido com sucesso!`);
+        console.log('✅ Usuário removido com sucesso');
+        
+        // Atualizar lista local imediatamente
+        setListaUsuarios(prev => prev.filter(u => u.id !== usuarioParaRemover.id));
+        
+        // Recarregar dados para garantir sincronização
+        setTimeout(async () => {
+          const usuariosAtualizados = await getUsuarios();
+          setListaUsuarios(usuariosAtualizados);
+        }, 500);
       } else {
-        alert('Erro ao remover usuário.');
+        mostrarNotificacaoTemporaria('erro', 'Erro ao remover usuário. Tente novamente.');
+        console.error('❌ Falha ao remover usuário');
       }
+    } catch (error) {
+      console.error('❌ Erro ao remover usuário:', error);
+      mostrarNotificacaoTemporaria('erro', 'Erro ao remover usuário. Verifique sua conexão.');
     }
+
+    setRemovendoUsuario(false);
+    setUsuarioParaRemover(null);
+  };
+
+  const cancelarRemocaoUsuario = () => {
+    console.log('❌ Remoção cancelada pelo usuário');
+    setUsuarioParaRemover(null);
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Notificação */}
+      {mostrarNotificacao && (
+        <NotificacaoSalvamento
+          tipo={tipoNotificacao}
+          mensagem={mensagemNotificacao}
+          visivel={mostrarNotificacao}
+          onFechar={() => setMostrarNotificacao(false)}
+        />
+      )}
+
+      {/* Modal de Confirmação */}
+      {usuarioParaRemover && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-2xl">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">⚠️ Confirmar Remoção</h3>
+            <p className="text-gray-600 mb-6">
+              Tem certeza que deseja remover o usuário <strong>"{usuarioParaRemover.nome}"</strong>? 
+              <br /><br />
+              <span className="text-red-600 font-medium">Esta ação não pode ser desfeita e todos os dados do usuário serão perdidos permanentemente.</span>
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={cancelarRemocaoUsuario}
+                disabled={removendoUsuario}
+                className="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50 font-medium"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarRemocaoUsuario}
+                disabled={removendoUsuario}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2 font-medium"
+              >
+                {removendoUsuario ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Removendo...
+                  </>
+                ) : (
+                  <>
+                    <Trash className="w-4 h-4" />
+                    Remover Definitivamente
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -110,7 +216,7 @@ export default function GerenciarUsuarios({ onVoltar, usuario }: GerenciarUsuari
             </button>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Gerenciar Usuários</h1>
-              <p className="text-gray-600">Adicione e gerencie usuários do sistema</p>
+              <p className="text-gray-600">Adicione e gerencie usuários do sistema com salvamento automático</p>
             </div>
           </div>
         </div>
@@ -215,8 +321,9 @@ export default function GerenciarUsuarios({ onVoltar, usuario }: GerenciarUsuari
                     </span>
                     {usuarioItem.id !== usuario.id && (
                       <button
-                        onClick={() => handleRemoverUsuario(usuarioItem.id)}
-                        className="bg-red-600 text-white px-3 py-2 rounded-lg font-medium hover:bg-red-700 transition-colors flex items-center gap-2"
+                        onClick={() => iniciarRemocaoUsuario(usuarioItem.id, usuarioItem.nome)}
+                        className="bg-red-600 text-white px-3 py-2 rounded-lg font-medium hover:bg-red-700 transition-colors flex items-center gap-2 hover:shadow-lg"
+                        title={`Remover usuário ${usuarioItem.nome}`}
                       >
                         <Trash className="w-4 h-4" />
                         Remover
@@ -231,13 +338,14 @@ export default function GerenciarUsuarios({ onVoltar, usuario }: GerenciarUsuari
 
         {/* Informações importantes */}
         <div className="bg-blue-50 rounded-xl p-6 mt-6">
-          <h3 className="text-sm font-semibold text-blue-900 mb-2">ℹ️ Informações Importantes</h3>
+          <h3 className="text-sm font-semibold text-blue-900 mb-2">💾 Sistema de Salvamento Automático</h3>
           <ul className="text-sm text-blue-800 space-y-1">
-            <li>• Apenas administradores podem gerenciar usuários</li>
-            <li>• Você não pode remover seu próprio usuário</li>
-            <li>• Administradores têm acesso completo ao sistema</li>
-            <li>• Corretores podem apenas visualizar e usar chaves</li>
-            <li>• Todas as alterações são salvas automaticamente no banco de dados</li>
+            <li>• ✅ Todas as alterações são salvas automaticamente no banco de dados Supabase</li>
+            <li>• 🔄 Atualizações em tempo real - mudanças aparecem instantaneamente</li>
+            <li>• 🛡️ Apenas administradores podem gerenciar usuários</li>
+            <li>• 🚫 Você não pode remover seu próprio usuário</li>
+            <li>• 👥 Administradores têm acesso completo ao sistema</li>
+            <li>• 🔑 Corretores podem apenas visualizar e usar chaves</li>
           </ul>
         </div>
       </div>
