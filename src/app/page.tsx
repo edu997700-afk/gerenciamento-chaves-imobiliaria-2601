@@ -1,111 +1,182 @@
-"use client";
+'use client';
+
 import { useState, useEffect } from 'react';
-import { LogOut, QrCode, User, History } from 'lucide-react';
+import { Key, LogOut, User, Settings } from 'lucide-react';
+import { Usuario, Chave } from '@/lib/types';
+import { 
+  inicializarDados, 
+  getChaves, 
+  getUsuarios, 
+  autenticarUsuario,
+  escutarMudancasChaves,
+  escutarMudancasUsuarios,
+  removerChaveSupabase
+} from '@/lib/supabase-data';
+
+// Componentes
 import LoginForm from '@/components/LoginForm';
 import Dashboard from '@/components/Dashboard';
 import ChaveDetalhes from '@/components/ChaveDetalhes';
 import CadastroChave from '@/components/CadastroChave';
-import QRScanner from '@/components/QRScanner';
 import GerenciarUsuarios from '@/components/GerenciarUsuarios';
-import { Chave, Usuario, RegistroChave } from '@/lib/types';
-import { 
-  inicializarDados,
-  getChaves,
-  getRegistrosChaves,
-  getChaveById,
-  getUsuarioById,
-  removerChaveSupabase,
-  escutarMudancasChaves,
-  escutarMudancasRegistros
-} from '@/lib/supabase-data';
+import { StatusSalvamentoCompacto } from '@/components/StatusSalvamento';
 
-type Tela = 'login' | 'dashboard' | 'detalhes' | 'cadastro' | 'scanner' | 'usuarios' | 'historico';
+type TelaAtiva = 'login' | 'dashboard' | 'detalhes' | 'cadastro' | 'usuarios';
+
+// Dados de fallback para garantir funcionamento
+const chavesFallback: Chave[] = [
+  {
+    id: 'fallback-1',
+    codigoImovel: 'APT001',
+    endereco: 'Rua das Flores, 123 - Apto 101',
+    tipo: 'apartamento',
+    armario: 'A1',
+    status: 'disponivel',
+    qrCode: 'QR_APT001',
+    criadoEm: new Date('2024-03-01'),
+    atualizadoEm: new Date('2024-03-01')
+  },
+  {
+    id: 'fallback-2',
+    codigoImovel: 'APT002',
+    endereco: 'Av. Central, 456 - Apto 205',
+    tipo: 'apartamento',
+    armario: 'A2',
+    status: 'em_uso',
+    qrCode: 'QR_APT002',
+    criadoEm: new Date('2024-03-02'),
+    atualizadoEm: new Date('2024-03-02')
+  },
+  {
+    id: 'fallback-3',
+    codigoImovel: 'CASA001',
+    endereco: 'Rua do Sol, 789',
+    tipo: 'casa',
+    armario: 'B1',
+    status: 'disponivel',
+    qrCode: 'QR_CASA001',
+    criadoEm: new Date('2024-03-03'),
+    atualizadoEm: new Date('2024-03-03')
+  },
+  {
+    id: 'fallback-4',
+    codigoImovel: 'COM001',
+    endereco: 'Rua Comercial, 321 - Loja 1',
+    tipo: 'comercial',
+    armario: 'C1',
+    status: 'em_uso',
+    qrCode: 'QR_COM001',
+    criadoEm: new Date('2024-03-04'),
+    atualizadoEm: new Date('2024-03-04')
+  },
+  {
+    id: 'fallback-5',
+    codigoImovel: 'APT003',
+    endereco: 'Rua Nova, 654 - Apto 302',
+    tipo: 'apartamento',
+    armario: 'A3',
+    status: 'disponivel',
+    qrCode: 'QR_APT003',
+    criadoEm: new Date('2024-03-05'),
+    atualizadoEm: new Date('2024-03-05')
+  }
+];
 
 export default function Home() {
-  const [telaAtiva, setTelaAtiva] = useState<Tela>('login');
+  const [telaAtiva, setTelaAtiva] = useState<TelaAtiva>('login');
   const [usuario, setUsuario] = useState<Usuario | null>(null);
-  const [chaveSelecionada, setChaveSelecionada] = useState<Chave | null>(null);
   const [chaves, setChaves] = useState<Chave[]>([]);
-  const [registros, setRegistros] = useState<RegistroChave[]>([]);
-  const [carregando, setCarregando] = useState(true);
+  const [chaveSelecionada, setChaveSelecionada] = useState<Chave | null>(null);
+  const [carregandoInicial, setCarregandoInicial] = useState(true);
+  const [supabaseConectado, setSupabaseConectado] = useState(false);
 
+  // Inicializar dados e configurar listeners
   useEffect(() => {
     const inicializar = async () => {
+      console.log('🚀 Inicializando sistema...');
+      
       try {
-        // Inicializar dados se necessário
+        // Tentar inicializar dados no Supabase
         await inicializarDados();
         
-        // Carregar dados iniciais
-        const [chavesData, registrosData] = await Promise.all([
-          getChaves(),
-          getRegistrosChaves()
-        ]);
+        // Tentar carregar dados do Supabase
+        const chavesSupabase = await getChaves();
         
-        setChaves(chavesData);
-        setRegistros(registrosData);
-        
-        // Verificar se há usuário logado no localStorage
-        const usuarioSalvo = localStorage.getItem('usuarioLogado');
-        if (usuarioSalvo) {
-          setUsuario(JSON.parse(usuarioSalvo));
-          setTelaAtiva('dashboard');
+        if (chavesSupabase && chavesSupabase.length > 0) {
+          console.log('✅ Dados carregados do Supabase:', chavesSupabase.length, 'chaves');
+          setChaves(chavesSupabase);
+          setSupabaseConectado(true);
+        } else {
+          console.log('⚠️ Supabase não disponível, usando dados de fallback');
+          setChaves(chavesFallback);
+          setSupabaseConectado(false);
         }
-        
-        setCarregando(false);
       } catch (error) {
-        console.error('Erro ao inicializar:', error);
-        setCarregando(false);
+        console.error('❌ Erro ao inicializar:', error);
+        console.log('🔄 Usando dados de fallback para garantir funcionamento');
+        setChaves(chavesFallback);
+        setSupabaseConectado(false);
       }
+      
+      setCarregandoInicial(false);
+      console.log('✅ Sistema inicializado com sucesso!');
     };
 
     inicializar();
   }, []);
 
+  // Configurar listeners de tempo real quando usuário faz login
   useEffect(() => {
-    if (!carregando) {
-      // Configurar escuta de mudanças em tempo real
-      const unsubscribeChaves = escutarMudancasChaves((novasChaves) => {
-        setChaves(novasChaves);
-        
-        // Atualizar chave selecionada se necessário
-        if (chaveSelecionada) {
-          const chaveAtualizada = novasChaves.find(c => c.id === chaveSelecionada.id);
-          if (chaveAtualizada) {
-            setChaveSelecionada(chaveAtualizada);
-          }
-        }
-      });
+    if (!usuario || !supabaseConectado) return;
 
-      const unsubscribeRegistros = escutarMudancasRegistros((novosRegistros) => {
-        setRegistros(novosRegistros);
-      });
+    console.log('🔄 Configurando atualizações automáticas em tempo real...');
 
-      return () => {
-        unsubscribeChaves();
-        unsubscribeRegistros();
-      };
-    }
-  }, [carregando, chaveSelecionada]);
+    // Escutar mudanças em chaves
+    const unsubscribeChaves = escutarMudancasChaves((novasChaves) => {
+      console.log('🔄 Chaves atualizadas automaticamente:', novasChaves.length);
+      setChaves(novasChaves);
+    });
 
-  const handleLogin = (usuarioLogado: Usuario) => {
+    // Escutar mudanças em usuários (para admins)
+    const unsubscribeUsuarios = escutarMudancasUsuarios((novosUsuarios) => {
+      console.log('🔄 Usuários atualizados automaticamente:', novosUsuarios.length);
+    });
+
+    return () => {
+      console.log('🔄 Desativando listeners de tempo real...');
+      unsubscribeChaves();
+      unsubscribeUsuarios();
+    };
+  }, [usuario, supabaseConectado]);
+
+  const handleLogin = async (usuarioLogado: Usuario) => {
+    console.log('✅ Login realizado:', usuarioLogado.nome);
     setUsuario(usuarioLogado);
-    localStorage.setItem('usuarioLogado', JSON.stringify(usuarioLogado));
     setTelaAtiva('dashboard');
+    
+    // Recarregar dados após login se Supabase estiver disponível
+    if (supabaseConectado) {
+      try {
+        const chavesAtualizadas = await getChaves();
+        if (chavesAtualizadas && chavesAtualizadas.length > 0) {
+          setChaves(chavesAtualizadas);
+        }
+      } catch (error) {
+        console.log('⚠️ Erro ao recarregar dados, mantendo dados atuais');
+      }
+    }
   };
 
   const handleLogout = () => {
+    console.log('👋 Fazendo logout...');
     setUsuario(null);
-    localStorage.removeItem('usuarioLogado');
+    setChaveSelecionada(null);
     setTelaAtiva('login');
   };
 
-  const handleVerDetalhes = async (chave: Chave) => {
-    // Buscar chave atualizada do banco
-    const chaveAtualizada = await getChaveById(chave.id);
-    if (chaveAtualizada) {
-      setChaveSelecionada(chaveAtualizada);
-      setTelaAtiva('detalhes');
-    }
+  const handleVerDetalhes = (chave: Chave) => {
+    setChaveSelecionada(chave);
+    setTelaAtiva('detalhes');
   };
 
   const handleVoltarDashboard = () => {
@@ -117,254 +188,255 @@ export default function Home() {
     setTelaAtiva('cadastro');
   };
 
-  const handleChaveCadastrada = (novaChave: Chave) => {
-    alert(`Chave ${novaChave.codigoImovel} cadastrada com sucesso!`);
-    setTelaAtiva('dashboard');
-  };
-
-  const handleAbrirScanner = () => {
-    setTelaAtiva('scanner');
-  };
-
-  const handleQRDetected = async (qrCode: string) => {
-    const chave = chaves.find(c => c.qrCode === qrCode);
-    if (chave) {
-      const chaveAtualizada = await getChaveById(chave.id);
-      if (chaveAtualizada) {
-        setChaveSelecionada(chaveAtualizada);
-        setTelaAtiva('detalhes');
-      }
-    } else {
-      alert(`Chave não encontrada para o código: ${qrCode}`);
-      setTelaAtiva('dashboard');
-    }
-  };
-
-  const handleAtualizarChave = (chaveId: string, novoStatus: 'disponivel' | 'em_uso') => {
-    // A atualização será feita via Supabase e o tempo real atualizará automaticamente
-    console.log(`Chave ${chaveId} atualizada para ${novoStatus}`);
-  };
-
   const handleGerenciarUsuarios = () => {
     setTelaAtiva('usuarios');
   };
 
-  const handleHistorico = () => {
-    setTelaAtiva('historico');
+  const handleChaveCadastrada = async (novaChave: Chave | null) => {
+    if (novaChave) {
+      console.log('✅ Nova chave cadastrada:', novaChave.codigoImovel);
+      
+      if (supabaseConectado) {
+        // Se Supabase estiver conectado, recarregar dados
+        try {
+          const chavesAtualizadas = await getChaves();
+          if (chavesAtualizadas && chavesAtualizadas.length > 0) {
+            setChaves(chavesAtualizadas);
+          }
+        } catch (error) {
+          console.log('⚠️ Erro ao recarregar, adicionando localmente');
+          setChaves(prev => [...prev, novaChave]);
+        }
+      } else {
+        // Se não estiver conectado, adicionar localmente
+        setChaves(prev => [...prev, novaChave]);
+      }
+    }
+    setTelaAtiva('dashboard');
   };
 
-  const handleRemoverChave = async (chaveId: string) => {
-    if (usuario && usuario.cargo === 'admin') {
-      const sucesso = await removerChaveSupabase(chaveId);
-      if (sucesso) {
-        alert('Chave removida com sucesso!');
-        setTelaAtiva('dashboard');
-      } else {
-        alert('Erro ao remover a chave.');
-      }
-    } else {
-      alert('Apenas administradores podem remover chaves.');
+  const handleAtualizarChave = async (chaveId: string, novoStatus: 'disponivel' | 'em_uso') => {
+    console.log('🔄 Atualizando status da chave:', chaveId, novoStatus);
+    
+    // Atualizar estado local imediatamente para UX responsiva
+    setChaves(prevChaves => 
+      prevChaves.map(chave => 
+        chave.id === chaveId 
+          ? { ...chave, status: novoStatus, atualizadoEm: new Date() }
+          : chave
+      )
+    );
+
+    // Atualizar chave selecionada se for a mesma
+    if (chaveSelecionada && chaveSelecionada.id === chaveId) {
+      setChaveSelecionada(prev => prev ? { ...prev, status: novoStatus, atualizadoEm: new Date() } : null);
+    }
+
+    // Se Supabase estiver conectado, tentar sincronizar
+    if (supabaseConectado) {
+      setTimeout(async () => {
+        try {
+          const chavesAtualizadas = await getChaves();
+          if (chavesAtualizadas && chavesAtualizadas.length > 0) {
+            setChaves(chavesAtualizadas);
+          }
+        } catch (error) {
+          console.log('⚠️ Erro ao sincronizar, mantendo dados locais');
+        }
+      }, 1000);
     }
   };
 
-  // Mostrar loading enquanto inicializa
-  if (carregando) {
+  const handleRemoverChave = async (chaveId: string) => {
+    console.log('🗑️ Removendo chave:', chaveId);
+    
+    if (supabaseConectado) {
+      // Tentar remover do Supabase
+      const sucesso = await removerChaveSupabase(chaveId);
+      
+      if (sucesso) {
+        // Atualizar estado local
+        setChaves(prevChaves => prevChaves.filter(chave => chave.id !== chaveId));
+        
+        // Se a chave removida estava selecionada, voltar ao dashboard
+        if (chaveSelecionada && chaveSelecionada.id === chaveId) {
+          setChaveSelecionada(null);
+          setTelaAtiva('dashboard');
+        }
+        
+        // Recarregar dados para garantir sincronização
+        setTimeout(async () => {
+          try {
+            const chavesAtualizadas = await getChaves();
+            if (chavesAtualizadas) {
+              setChaves(chavesAtualizadas);
+            }
+          } catch (error) {
+            console.log('⚠️ Erro ao recarregar após remoção');
+          }
+        }, 500);
+      }
+    } else {
+      // Se não estiver conectado, remover localmente
+      setChaves(prevChaves => prevChaves.filter(chave => chave.id !== chaveId));
+      
+      if (chaveSelecionada && chaveSelecionada.id === chaveId) {
+        setChaveSelecionada(null);
+        setTelaAtiva('dashboard');
+      }
+    }
+  };
+
+  const handleChaveExcluida = () => {
+    console.log('✅ Chave excluída, voltando ao dashboard...');
+    handleVoltarDashboard();
+  };
+
+  if (carregandoInicial) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Carregando sistema...</p>
+          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Inicializando Sistema</h2>
+          <p className="text-gray-600">Carregando dados...</p>
         </div>
       </div>
     );
   }
 
-  // Renderizar tela de login
-  if (telaAtiva === 'login') {
-    return <LoginForm onLogin={handleLogin} />;
-  }
+  // Renderizar tela baseada no estado atual
+  switch (telaAtiva) {
+    case 'login':
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+          <div className="flex items-center justify-center min-h-screen p-4">
+            <div className="w-full max-w-md">
+              {/* Header */}
+              <div className="text-center mb-8">
+                <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Key className="w-8 h-8 text-white" />
+                </div>
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">Sistema de Chaves</h1>
+                <p className="text-gray-600">Gerencie chaves de imóveis</p>
+                
+                {/* Status do sistema */}
+                <div className={`mt-4 px-4 py-2 rounded-lg text-sm ${
+                  supabaseConectado 
+                    ? 'bg-green-100 text-green-800' 
+                    : 'bg-yellow-100 text-yellow-800'
+                }`}>
+                  {supabaseConectado 
+                    ? '✅ Sistema conectado - dados salvos automaticamente' 
+                    : '⚠️ Modo offline - dados temporários'
+                  }
+                </div>
+              </div>
 
-  // Header comum para telas autenticadas
-  const HeaderComum = () => (
-    <div className="bg-white shadow-sm border-b">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center py-4">
-          <div className="flex items-center space-x-4">
-            <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold text-lg">JRS</span>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">JRS IMÓVEIS</h1>
-              <p className="text-sm text-gray-600">Sistema de Gerenciamento</p>
-            </div>
-          </div>
+              <LoginForm onLogin={handleLogin} />
 
-          <div className="flex items-center space-x-4">
-            {telaAtiva === 'dashboard' && (
-              <button
-                onClick={handleAbrirScanner}
-                className="bg-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-purple-700 transition-colors flex items-center gap-2"
-              >
-                <QrCode className="w-4 h-4" />
-                Scanner
-              </button>
-            )}
-            
-            <button
-              onClick={handleHistorico}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
-            >
-              <History className="w-4 h-4" />
-              Histórico
-            </button>
-
-            <div className="flex items-center space-x-2 text-gray-700">
-              <User className="w-4 h-4" />
-              <span className="text-sm font-medium">{usuario?.nome}</span>
-              <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                usuario?.cargo === 'admin' 
-                  ? 'bg-purple-100 text-purple-800' 
-                  : 'bg-blue-100 text-blue-800'
-              }`}>
-                {usuario?.cargo === 'admin' ? 'Admin' : 'Corretor'}
-              </span>
+              {/* Informações do sistema */}
+              <div className="mt-8 bg-white/50 backdrop-blur-sm rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-gray-900 mb-2">✨ Recursos do Sistema</h3>
+                <ul className="text-xs text-gray-700 space-y-1">
+                  <li>• 🔐 Controle de acesso por perfil</li>
+                  <li>• 📊 Dashboard com estatísticas</li>
+                  <li>• 📱 Interface responsiva</li>
+                  <li>• {supabaseConectado ? '💾 Salvamento automático' : '📝 Dados temporários'}</li>
+                  <li>• {supabaseConectado ? '🔄 Atualizações em tempo real' : '🔄 Atualizações locais'}</li>
+                </ul>
+              </div>
             </div>
-            
-            <button
-              onClick={handleLogout}
-              className="text-gray-600 hover:text-gray-900 p-2 rounded-lg hover:bg-gray-100 transition-colors"
-              title="Sair"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
           </div>
         </div>
-      </div>
-    </div>
-  );
+      );
 
-  // Renderizar telas baseado no estado
-  switch (telaAtiva) {
     case 'dashboard':
       return (
-        <div>
-          <HeaderComum />
+        <div className="min-h-screen bg-gray-50">
+          {/* Header Global */}
+          <div className="bg-white shadow-sm border-b">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex justify-between items-center py-3">
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
+                    <Key className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h1 className="text-lg font-bold text-gray-900">Sistema de Chaves</h1>
+                    <p className="text-xs text-gray-600">
+                      {supabaseConectado ? 'Salvamento automático ativo' : 'Modo offline'}
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center space-x-4">
+                  <StatusSalvamentoCompacto supabaseConectado={supabaseConectado} />
+                  
+                  <div className="flex items-center space-x-2">
+                    <User className="w-4 h-4 text-gray-600" />
+                    <span className="text-sm text-gray-700">{usuario?.nome}</span>
+                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                      usuario?.cargo === 'admin' 
+                        ? 'bg-purple-100 text-purple-800' 
+                        : 'bg-blue-100 text-blue-800'
+                    }`}>
+                      {usuario?.cargo === 'admin' ? 'Admin' : 'Corretor'}
+                    </span>
+                  </div>
+                  
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span className="text-sm">Sair</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <Dashboard
             usuario={usuario}
+            chaves={chaves}
             onVerDetalhes={handleVerDetalhes}
             onCadastrarChave={handleCadastrarChave}
             onGerenciarUsuarios={handleGerenciarUsuarios}
             onRemoverChave={handleRemoverChave}
-            chaves={chaves}
           />
         </div>
       );
 
     case 'detalhes':
-      return chaveSelecionada ? (
+      if (!chaveSelecionada || !usuario) return null;
+      return (
         <ChaveDetalhes
           chave={chaveSelecionada}
           usuario={usuario}
           onVoltar={handleVoltarDashboard}
           onAtualizarChave={handleAtualizarChave}
+          onChaveExcluida={handleChaveExcluida}
         />
-      ) : (
-        <div>Chave não encontrada</div>
       );
 
     case 'cadastro':
       return (
         <CadastroChave
-          usuario={usuario}
           onVoltar={handleVoltarDashboard}
           onChaveCadastrada={handleChaveCadastrada}
-        />
-      );
-
-    case 'scanner':
-      return (
-        <QRScanner
-          onVoltar={handleVoltarDashboard}
-          onQRDetected={handleQRDetected}
+          usuario={usuario}
         />
       );
 
     case 'usuarios':
       return (
         <GerenciarUsuarios
-          usuario={usuario}
           onVoltar={handleVoltarDashboard}
+          usuario={usuario}
         />
       );
 
-    case 'historico':
-      return (
-        <div>
-          <HeaderComum />
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">Histórico de Uso de Chaves</h2>
-            <button
-              onClick={handleVoltarDashboard}
-              className="bg-gray-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-gray-700 transition-colors mb-4"
-            >
-              Voltar para o Dashboard
-            </button>
-            <div className="space-y-4">
-              {registros.length === 0 ? (
-                <div className="bg-white rounded-xl shadow-sm p-8 text-center">
-                  <History className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-500">Nenhum registro encontrado</p>
-                </div>
-              ) : (
-                registros.map(registro => {
-                  const chave = chaves.find(c => c.id === registro.chaveId);
-                  
-                  return (
-                    <div key={registro.id} className="bg-white shadow-sm rounded-xl overflow-hidden">
-                      <div className="px-6 py-4 border-b border-gray-200">
-                        <h3 className="text-lg font-medium text-gray-900">
-                          Chave: {chave?.codigoImovel || 'Não encontrada'}
-                        </h3>
-                        <p className="text-sm text-gray-600">
-                          Usuário: {registro.usuarioId}
-                        </p>
-                      </div>
-                      <div className="px-6 py-4">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div>
-                            <dt className="text-sm font-medium text-gray-500">Ação</dt>
-                            <dd className="mt-1 text-sm text-gray-900">
-                              <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                                registro.acao === 'retirada' 
-                                  ? 'bg-orange-100 text-orange-800' 
-                                  : 'bg-green-100 text-green-800'
-                              }`}>
-                                {registro.acao === 'retirada' ? 'Retirada' : 'Devolução'}
-                              </span>
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="text-sm font-medium text-gray-500">Data e Hora</dt>
-                            <dd className="mt-1 text-sm text-gray-900">{registro.dataHora.toLocaleString()}</dd>
-                          </div>
-                          {registro.observacoes && (
-                            <div>
-                              <dt className="text-sm font-medium text-gray-500">Observações</dt>
-                              <dd className="mt-1 text-sm text-gray-900">{registro.observacoes}</dd>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
-      );
-
     default:
-      return <div>Tela não encontrada</div>;
+      return null;
   }
 }
