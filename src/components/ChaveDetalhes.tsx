@@ -3,7 +3,14 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft, Key, Clock, User, MapPin, QrCode, AlertTriangle, CheckCircle, Trash2 } from 'lucide-react';
 import { Chave, RegistroChave, Usuario } from '@/lib/types';
-import { getUltimoRegistro, getUsuarioById, registrosChaves, removerChave } from '@/lib/data';
+import { 
+  getUltimoRegistro, 
+  getUsuarioById, 
+  getRegistrosChaves,
+  adicionarRegistro,
+  atualizarChave,
+  removerChaveSupabase 
+} from '@/lib/supabase-data';
 
 interface ChaveDetalhesProps {
   chave: Chave;
@@ -19,19 +26,30 @@ export default function ChaveDetalhes({ chave, usuario, onVoltar, onAtualizarCha
   const [historico, setHistorico] = useState<RegistroChave[]>([]);
   const [mostrarConfirmacao, setMostrarConfirmacao] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
+  const [ultimoRegistro, setUltimoRegistro] = useState<RegistroChave | null>(null);
+  const [usuarioComChave, setUsuarioComChave] = useState<Usuario | null>(null);
 
   useEffect(() => {
-    // Buscar histórico da chave
-    const historicoChave = registrosChaves
-      .filter(registro => registro.chaveId === chave.id)
-      .sort((a, b) => b.dataHora.getTime() - a.dataHora.getTime());
-    setHistorico(historicoChave);
-  }, [chave.id]);
+    const carregarDados = async () => {
+      // Buscar histórico da chave
+      const todosRegistros = await getRegistrosChaves();
+      const historicoChave = todosRegistros
+        .filter(registro => registro.chaveId === chave.id)
+        .sort((a, b) => b.dataHora.getTime() - a.dataHora.getTime());
+      setHistorico(historicoChave);
 
-  const ultimoRegistro = getUltimoRegistro(chave.id);
-  const usuarioComChave = ultimoRegistro && ultimoRegistro.acao === 'retirada' 
-    ? getUsuarioById(ultimoRegistro.usuarioId) 
-    : null;
+      // Buscar último registro e usuário com a chave
+      const ultimo = await getUltimoRegistro(chave.id);
+      setUltimoRegistro(ultimo);
+      
+      if (ultimo && ultimo.acao === 'retirada') {
+        const usuario = await getUsuarioById(ultimo.usuarioId);
+        setUsuarioComChave(usuario);
+      }
+    };
+
+    carregarDados();
+  }, [chave.id]);
 
   const isAtrasada = () => {
     if (chave.status !== 'em_uso' || !ultimoRegistro || ultimoRegistro.acao !== 'retirada') return false;
@@ -58,22 +76,26 @@ export default function ChaveDetalhes({ chave, usuario, onVoltar, onAtualizarCha
     
     setCarregando(true);
     
-    // Simular delay da operação
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      // Adicionar registro
+      const novoRegistro = await adicionarRegistro({
+        chaveId: chave.id,
+        usuarioId: usuario.id,
+        acao: 'retirada',
+        observacoes: observacoes || undefined
+      });
+
+      if (novoRegistro) {
+        // Atualizar status da chave
+        await atualizarChave(chave.id, { status: 'em_uso' });
+        onAtualizarChave(chave.id, 'em_uso');
+        setObservacoes('');
+      }
+    } catch (error) {
+      console.error('Erro ao pegar chave:', error);
+      alert('Erro ao pegar a chave. Tente novamente.');
+    }
     
-    // Adicionar registro
-    const novoRegistro: RegistroChave = {
-      id: Date.now().toString(),
-      chaveId: chave.id,
-      usuarioId: usuario.id,
-      acao: 'retirada',
-      dataHora: new Date(),
-      observacoes: observacoes || undefined
-    };
-    
-    registrosChaves.push(novoRegistro);
-    onAtualizarChave(chave.id, 'em_uso');
-    setObservacoes('');
     setCarregando(false);
   };
 
@@ -82,45 +104,52 @@ export default function ChaveDetalhes({ chave, usuario, onVoltar, onAtualizarCha
     
     setCarregando(true);
     
-    // Simular delay da operação
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      // Adicionar registro
+      const novoRegistro = await adicionarRegistro({
+        chaveId: chave.id,
+        usuarioId: usuario.id,
+        acao: 'devolucao',
+        observacoes: observacoes || undefined
+      });
+
+      if (novoRegistro) {
+        // Atualizar status da chave
+        await atualizarChave(chave.id, { status: 'disponivel' });
+        onAtualizarChave(chave.id, 'disponivel');
+        setObservacoes('');
+      }
+    } catch (error) {
+      console.error('Erro ao devolver chave:', error);
+      alert('Erro ao devolver a chave. Tente novamente.');
+    }
     
-    // Adicionar registro
-    const novoRegistro: RegistroChave = {
-      id: Date.now().toString(),
-      chaveId: chave.id,
-      usuarioId: usuario.id,
-      acao: 'devolucao',
-      dataHora: new Date(),
-      observacoes: observacoes || undefined
-    };
-    
-    registrosChaves.push(novoRegistro);
-    onAtualizarChave(chave.id, 'disponivel');
-    setObservacoes('');
     setCarregando(false);
   };
 
   const handleExcluirChave = async () => {
     setExcluindo(true);
     
-    // Simular delay da operação
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    const sucesso = removerChave(chave.id, usuario);
-    
-    if (sucesso) {
-      setMostrarConfirmacao(false);
-      setExcluindo(false);
-      // Chamar callback para notificar que a chave foi excluída
-      if (onChaveExcluida) {
-        onChaveExcluida();
+    try {
+      const sucesso = await removerChaveSupabase(chave.id);
+      
+      if (sucesso) {
+        setMostrarConfirmacao(false);
+        setExcluindo(false);
+        // Chamar callback para notificar que a chave foi excluída
+        if (onChaveExcluida) {
+          onChaveExcluida();
+        }
+        // Voltar para a tela anterior
+        onVoltar();
+      } else {
+        setExcluindo(false);
+        alert('Erro ao excluir chave. Tente novamente.');
       }
-      // Voltar para a tela anterior
-      onVoltar();
-    } else {
+    } catch (error) {
       setExcluindo(false);
-      alert('Erro ao excluir chave. Apenas administradores podem excluir chaves.');
+      console.error('Erro ao excluir chave:', error);
+      alert('Erro ao excluir chave. Tente novamente.');
     }
   };
 
@@ -255,42 +284,9 @@ export default function ChaveDetalhes({ chave, usuario, onVoltar, onAtualizarCha
                 <p className="text-gray-500 text-center py-8">Nenhuma movimentação registrada</p>
               ) : (
                 <div className="space-y-4">
-                  {historico.map((registro) => {
-                    const usuarioRegistro = getUsuarioById(registro.usuarioId);
-                    return (
-                      <div key={registro.id} className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
-                        <div className={`p-2 rounded-full ${
-                          registro.acao === 'retirada' 
-                            ? 'bg-orange-100 text-orange-600' 
-                            : 'bg-green-100 text-green-600'
-                        }`}>
-                          {registro.acao === 'retirada' ? (
-                            <Key className="w-4 h-4" />
-                          ) : (
-                            <CheckCircle className="w-4 h-4" />
-                          )}
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <p className="font-medium text-gray-900">
-                              {registro.acao === 'retirada' ? 'Chave retirada' : 'Chave devolvida'}
-                            </p>
-                            <span className="text-sm text-gray-500">
-                              {formatarData(registro.dataHora)}
-                            </span>
-                          </div>
-                          <p className="text-sm text-gray-600">
-                            por {usuarioRegistro?.nome || 'Usuário não encontrado'}
-                          </p>
-                          {registro.observacoes && (
-                            <p className="text-sm text-gray-600 mt-1">
-                              Obs: {registro.observacoes}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {historico.map((registro) => (
+                    <HistoricoItem key={registro.id} registro={registro} />
+                  ))}
                 </div>
               )}
             </div>
@@ -436,6 +432,64 @@ export default function ChaveDetalhes({ chave, usuario, onVoltar, onAtualizarCha
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Componente separado para item do histórico
+function HistoricoItem({ registro }: { registro: RegistroChave }) {
+  const [usuarioRegistro, setUsuarioRegistro] = useState<Usuario | null>(null);
+
+  useEffect(() => {
+    const carregarUsuario = async () => {
+      const usuario = await getUsuarioById(registro.usuarioId);
+      setUsuarioRegistro(usuario);
+    };
+
+    carregarUsuario();
+  }, [registro.usuarioId]);
+
+  const formatarData = (data: Date) => {
+    return new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(data);
+  };
+
+  return (
+    <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+      <div className={`p-2 rounded-full ${
+        registro.acao === 'retirada' 
+          ? 'bg-orange-100 text-orange-600' 
+          : 'bg-green-100 text-green-600'
+      }`}>
+        {registro.acao === 'retirada' ? (
+          <Key className="w-4 h-4" />
+        ) : (
+          <CheckCircle className="w-4 h-4" />
+        )}
+      </div>
+      <div className="flex-1">
+        <div className="flex items-center justify-between">
+          <p className="font-medium text-gray-900">
+            {registro.acao === 'retirada' ? 'Chave retirada' : 'Chave devolvida'}
+          </p>
+          <span className="text-sm text-gray-500">
+            {formatarData(registro.dataHora)}
+          </span>
+        </div>
+        <p className="text-sm text-gray-600">
+          por {usuarioRegistro?.nome || 'Carregando...'}
+        </p>
+        {registro.observacoes && (
+          <p className="text-sm text-gray-600 mt-1">
+            Obs: {registro.observacoes}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
