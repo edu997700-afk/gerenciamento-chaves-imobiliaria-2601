@@ -11,6 +11,40 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   
+  // ✅ CONFIGURAÇÃO PARA ACESSO PÚBLICO
+  // Permitir acesso de qualquer origem (necessário para compartilhamento)
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'Access-Control-Allow-Origin',
+            value: '*',
+          },
+          {
+            key: 'Access-Control-Allow-Methods',
+            value: 'GET, POST, PUT, DELETE, OPTIONS',
+          },
+          {
+            key: 'Access-Control-Allow-Headers',
+            value: 'Content-Type, Authorization',
+          },
+          // Permitir que o site seja incorporado em iframes (necessário para preview)
+          {
+            key: 'X-Frame-Options',
+            value: 'ALLOWALL',
+          },
+          // Configuração de segurança mais permissiva para acesso público
+          {
+            key: 'Content-Security-Policy',
+            value: "frame-ancestors *; default-src 'self' 'unsafe-inline' 'unsafe-eval' *; script-src 'self' 'unsafe-inline' 'unsafe-eval' *; style-src 'self' 'unsafe-inline' *; img-src 'self' data: blob: *; connect-src 'self' *;",
+          },
+        ],
+      },
+    ];
+  },
+  
   // Configuração de imagens para principais provedores
   images: {
     remotePatterns: [
@@ -194,6 +228,12 @@ const nextConfig: NextConfig = {
   // Configuração experimental para melhor performance
   experimental: {
     optimizePackageImports: ['lucide-react', '@radix-ui/react-icons'],
+  },
+  
+  // ✅ CONFIGURAÇÃO PARA PERMITIR ACESSO EXTERNO
+  // Permitir que o servidor aceite conexões de qualquer IP
+  env: {
+    HOSTNAME: '0.0.0.0',
   },
 };
 
