@@ -7,8 +7,17 @@ import ChaveDetalhes from '@/components/ChaveDetalhes';
 import CadastroChave from '@/components/CadastroChave';
 import QRScanner from '@/components/QRScanner';
 import GerenciarUsuarios from '@/components/GerenciarUsuarios';
-import { Chave, Usuario } from '@/lib/types';
-import { chaves, getChaveById, getUsuarioById, removerChave, registrosChaves } from '@/lib/data';
+import { Chave, Usuario, RegistroChave } from '@/lib/types';
+import { 
+  inicializarDados,
+  getChaves,
+  getRegistrosChaves,
+  getChaveById,
+  getUsuarioById,
+  removerChaveSupabase,
+  escutarMudancasChaves,
+  escutarMudancasRegistros
+} from '@/lib/supabase-data';
 
 type Tela = 'login' | 'dashboard' | 'detalhes' | 'cadastro' | 'scanner' | 'usuarios' | 'historico';
 
@@ -16,15 +25,67 @@ export default function Home() {
   const [telaAtiva, setTelaAtiva] = useState<Tela>('login');
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [chaveSelecionada, setChaveSelecionada] = useState<Chave | null>(null);
+  const [chaves, setChaves] = useState<Chave[]>([]);
+  const [registros, setRegistros] = useState<RegistroChave[]>([]);
+  const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
-    // Verificar se há usuário logado no localStorage
-    const usuarioSalvo = localStorage.getItem('usuarioLogado');
-    if (usuarioSalvo) {
-      setUsuario(JSON.parse(usuarioSalvo));
-      setTelaAtiva('dashboard');
-    }
+    const inicializar = async () => {
+      try {
+        // Inicializar dados se necessário
+        await inicializarDados();
+        
+        // Carregar dados iniciais
+        const [chavesData, registrosData] = await Promise.all([
+          getChaves(),
+          getRegistrosChaves()
+        ]);
+        
+        setChaves(chavesData);
+        setRegistros(registrosData);
+        
+        // Verificar se há usuário logado no localStorage
+        const usuarioSalvo = localStorage.getItem('usuarioLogado');
+        if (usuarioSalvo) {
+          setUsuario(JSON.parse(usuarioSalvo));
+          setTelaAtiva('dashboard');
+        }
+        
+        setCarregando(false);
+      } catch (error) {
+        console.error('Erro ao inicializar:', error);
+        setCarregando(false);
+      }
+    };
+
+    inicializar();
   }, []);
+
+  useEffect(() => {
+    if (!carregando) {
+      // Configurar escuta de mudanças em tempo real
+      const unsubscribeChaves = escutarMudancasChaves((novasChaves) => {
+        setChaves(novasChaves);
+        
+        // Atualizar chave selecionada se necessário
+        if (chaveSelecionada) {
+          const chaveAtualizada = novasChaves.find(c => c.id === chaveSelecionada.id);
+          if (chaveAtualizada) {
+            setChaveSelecionada(chaveAtualizada);
+          }
+        }
+      });
+
+      const unsubscribeRegistros = escutarMudancasRegistros((novosRegistros) => {
+        setRegistros(novosRegistros);
+      });
+
+      return () => {
+        unsubscribeChaves();
+        unsubscribeRegistros();
+      };
+    }
+  }, [carregando, chaveSelecionada]);
 
   const handleLogin = (usuarioLogado: Usuario) => {
     setUsuario(usuarioLogado);
@@ -38,9 +99,13 @@ export default function Home() {
     setTelaAtiva('login');
   };
 
-  const handleVerDetalhes = (chave: Chave) => {
-    setChaveSelecionada(chave);
-    setTelaAtiva('detalhes');
+  const handleVerDetalhes = async (chave: Chave) => {
+    // Buscar chave atualizada do banco
+    const chaveAtualizada = await getChaveById(chave.id);
+    if (chaveAtualizada) {
+      setChaveSelecionada(chaveAtualizada);
+      setTelaAtiva('detalhes');
+    }
   };
 
   const handleVoltarDashboard = () => {
@@ -61,11 +126,14 @@ export default function Home() {
     setTelaAtiva('scanner');
   };
 
-  const handleQRDetected = (qrCode: string) => {
+  const handleQRDetected = async (qrCode: string) => {
     const chave = chaves.find(c => c.qrCode === qrCode);
     if (chave) {
-      setChaveSelecionada(chave);
-      setTelaAtiva('detalhes');
+      const chaveAtualizada = await getChaveById(chave.id);
+      if (chaveAtualizada) {
+        setChaveSelecionada(chaveAtualizada);
+        setTelaAtiva('detalhes');
+      }
     } else {
       alert(`Chave não encontrada para o código: ${qrCode}`);
       setTelaAtiva('dashboard');
@@ -73,16 +141,8 @@ export default function Home() {
   };
 
   const handleAtualizarChave = (chaveId: string, novoStatus: 'disponivel' | 'em_uso') => {
-    const chave = getChaveById(chaveId);
-    if (chave) {
-      chave.status = novoStatus;
-      chave.atualizadoEm = new Date();
-      
-      // Atualizar a chave selecionada se for a mesma
-      if (chaveSelecionada?.id === chaveId) {
-        setChaveSelecionada({ ...chave });
-      }
-    }
+    // A atualização será feita via Supabase e o tempo real atualizará automaticamente
+    console.log(`Chave ${chaveId} atualizada para ${novoStatus}`);
   };
 
   const handleGerenciarUsuarios = () => {
@@ -93,9 +153,9 @@ export default function Home() {
     setTelaAtiva('historico');
   };
 
-  const handleRemoverChave = (chaveId: string) => {
+  const handleRemoverChave = async (chaveId: string) => {
     if (usuario && usuario.cargo === 'admin') {
-      const sucesso = removerChave(chaveId, usuario);
+      const sucesso = await removerChaveSupabase(chaveId);
       if (sucesso) {
         alert('Chave removida com sucesso!');
         setTelaAtiva('dashboard');
@@ -106,6 +166,18 @@ export default function Home() {
       alert('Apenas administradores podem remover chaves.');
     }
   };
+
+  // Mostrar loading enquanto inicializa
+  if (carregando) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Carregando sistema...</p>
+        </div>
+      </div>
+    );
+  }
 
   // Renderizar tela de login
   if (telaAtiva === 'login') {
@@ -183,6 +255,7 @@ export default function Home() {
             onCadastrarChave={handleCadastrarChave}
             onGerenciarUsuarios={handleGerenciarUsuarios}
             onRemoverChave={handleRemoverChave}
+            chaves={chaves}
           />
         </div>
       );
@@ -237,15 +310,14 @@ export default function Home() {
               Voltar para o Dashboard
             </button>
             <div className="space-y-4">
-              {registrosChaves.length === 0 ? (
+              {registros.length === 0 ? (
                 <div className="bg-white rounded-xl shadow-sm p-8 text-center">
                   <History className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                   <p className="text-gray-500">Nenhum registro encontrado</p>
                 </div>
               ) : (
-                registrosChaves.map(registro => {
-                  const chave = getChaveById(registro.chaveId);
-                  const usuarioRegistro = getUsuarioById(registro.usuarioId);
+                registros.map(registro => {
+                  const chave = chaves.find(c => c.id === registro.chaveId);
                   
                   return (
                     <div key={registro.id} className="bg-white shadow-sm rounded-xl overflow-hidden">
@@ -254,7 +326,7 @@ export default function Home() {
                           Chave: {chave?.codigoImovel || 'Não encontrada'}
                         </h3>
                         <p className="text-sm text-gray-600">
-                          Usuário: {usuarioRegistro?.nome || 'Não encontrado'}
+                          Usuário: {registro.usuarioId}
                         </p>
                       </div>
                       <div className="px-6 py-4">
