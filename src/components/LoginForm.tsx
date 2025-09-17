@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Eye, EyeOff, LogIn } from 'lucide-react';
-import { usuarios } from '@/lib/data';
+import { getUsuarios } from '@/lib/supabase-data';
 
 interface LoginFormProps {
   onLogin: (usuario: any) => void;
@@ -21,19 +21,23 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
     setCarregando(true);
     setErro('');
 
-    // Simular delay de autenticação
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      // Buscar usuários do Supabase
+      const usuarios = await getUsuarios();
+      const usuario = usuarios.find(u => u.email === email && u.senha === senha && u.ativo);
 
-    const usuario = usuarios.find(u => u.email === email && u.senha === senha && u.ativo);
-
-    if (usuario) {
-      if (lembrarUsuario) {
-        localStorage.setItem('lembrarUsuario', 'true');
-        localStorage.setItem('emailUsuario', email);
+      if (usuario) {
+        if (lembrarUsuario) {
+          localStorage.setItem('lembrarUsuario', 'true');
+          localStorage.setItem('emailUsuario', email);
+        }
+        onLogin(usuario);
+      } else {
+        setErro('E-mail ou senha incorretos');
       }
-      onLogin(usuario);
-    } else {
-      setErro('E-mail ou senha incorretos');
+    } catch (error) {
+      console.error('Erro ao fazer login:', error);
+      setErro('Erro ao conectar com o servidor. Tente novamente.');
     }
 
     setCarregando(false);
@@ -127,7 +131,14 @@ export default function LoginForm({ onLogin }: LoginFormProps) {
           </button>
         </form>
 
-
+        {/* Usuários de teste */}
+        <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+          <h3 className="text-sm font-medium text-gray-700 mb-2">Usuários de teste:</h3>
+          <div className="text-xs text-gray-600 space-y-1">
+            <div>Admin: maria@imobiliaria.com / 123456</div>
+            <div>Corretor: joao@imobiliaria.com / 123456</div>
+          </div>
+        </div>
       </div>
     </div>
   );
