@@ -1,15 +1,33 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+// Verificar se as variáveis de ambiente estão configuradas
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  realtime: {
-    params: {
-      eventsPerSecond: 10,
-    },
-  },
-});
+// Criar cliente Supabase apenas se as variáveis estiverem configuradas
+export const supabase = supabaseUrl && supabaseAnonKey 
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      realtime: {
+        params: {
+          eventsPerSecond: 10,
+        },
+      },
+    })
+  : null;
+
+// Função para verificar se o Supabase está configurado
+export const isSupabaseConfigured = () => {
+  return !!(supabaseUrl && supabaseAnonKey && supabase);
+};
+
+// Log de status da configuração
+if (typeof window !== 'undefined') {
+  if (isSupabaseConfigured()) {
+    console.log('✅ Supabase configurado e conectado');
+  } else {
+    console.warn('⚠️ Supabase não configurado - sistema funcionará em modo local');
+  }
+}
 
 // Tipos para o banco de dados
 export interface Database {
