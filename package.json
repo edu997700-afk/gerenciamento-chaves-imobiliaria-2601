@@ -1,12 +1,15 @@
 {
-  "name": "template",
-  "version": "0.1.0",
+  "name": "sistema-chaves-jrs",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev --turbopack --hostname 0.0.0.0 --port 3000",
+    "dev-public": "node server.js",
     "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "start": "next start --hostname 0.0.0.0 --port 3000",
+    "start-public": "NODE_ENV=production node server.js",
+    "lint": "next lint",
+    "preview": "next build && next start --hostname 0.0.0.0 --port 3000"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
