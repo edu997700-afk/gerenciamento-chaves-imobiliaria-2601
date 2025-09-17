@@ -17,8 +17,31 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Criado com a Lasy",
-  description: "Projeto criado com Lasy AI",
+  title: "Sistema de Chaves JRS - Gerenciamento de Imóveis",
+  description: "Sistema completo para gerenciamento de chaves de imóveis da JRS Imóveis. Controle de retirada, devolução e status das chaves em tempo real.",
+  keywords: "sistema chaves, imóveis, JRS, gerenciamento, controle, retirada, devolução",
+  authors: [{ name: "JRS Imóveis" }],
+  creator: "Lasy AI",
+  publisher: "JRS Imóveis",
+  robots: "index, follow",
+  openGraph: {
+    title: "Sistema de Chaves JRS",
+    description: "Gerenciamento completo de chaves de imóveis",
+    type: "website",
+    locale: "pt_BR",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Sistema de Chaves JRS",
+    description: "Gerenciamento completo de chaves de imóveis",
+  },
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+  },
+  themeColor: "#3b82f6",
+  manifest: "/manifest.json",
 };
 
 export default function RootLayout({
@@ -30,6 +53,11 @@ export default function RootLayout({
     <html lang="pt-BR">
       <head>
         <Script src="/lasy-bridge.js" strategy="beforeInteractive" />
+        <meta name="format-detection" content="telephone=no" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="apple-mobile-web-app-title" content="Sistema Chaves JRS" />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
