@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Trash, Plus, ArrowLeft } from 'lucide-react';
 import { Usuario } from '@/lib/types';
-import { usuarios, adicionarUsuario, removerUsuario } from '@/lib/data';
+import { getUsuarios, adicionarUsuario, removerUsuarioSupabase, escutarMudancasUsuarios } from '@/lib/supabase-data';
 
 interface GerenciarUsuariosProps {
   onVoltar: () => void;
@@ -11,13 +11,24 @@ interface GerenciarUsuariosProps {
 export default function GerenciarUsuarios({ onVoltar, usuario }: GerenciarUsuariosProps) {
   const [listaUsuarios, setListaUsuarios] = useState<Usuario[]>([]);
   const [novoUsuario, setNovoUsuario] = useState({ nome: '', email: '', senha: '', cargo: 'corretor' as 'corretor' | 'admin' });
+  const [carregando, setCarregando] = useState(false);
 
   useEffect(() => {
-    // Carregar apenas usuários criados pelo sistema (não os de demonstração)
-    const usuariosReais = usuarios.filter(u => 
-      !['joao@imobiliaria.com', 'maria@imobiliaria.com', 'pedro@imobiliaria.com', 'eduarmito790@gmail.com'].includes(u.email)
-    );
-    setListaUsuarios(usuariosReais);
+    const carregarUsuarios = async () => {
+      const usuarios = await getUsuarios();
+      setListaUsuarios(usuarios);
+    };
+
+    carregarUsuarios();
+
+    // Escutar mudanças em tempo real
+    const unsubscribe = escutarMudancasUsuarios((novosUsuarios) => {
+      setListaUsuarios(novosUsuarios);
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   if (!usuario || usuario.cargo !== 'admin') {
@@ -37,16 +48,18 @@ export default function GerenciarUsuarios({ onVoltar, usuario }: GerenciarUsuari
     );
   }
 
-  const handleAdicionarUsuario = () => {
+  const handleAdicionarUsuario = async () => {
     if (novoUsuario.nome && novoUsuario.email && novoUsuario.senha) {
       // Verificar se email já existe
-      const emailExiste = usuarios.find(u => u.email === novoUsuario.email);
+      const emailExiste = listaUsuarios.find(u => u.email === novoUsuario.email);
       if (emailExiste) {
         alert('Já existe um usuário com este email.');
         return;
       }
 
-      const usuarioAdicionado = adicionarUsuario({
+      setCarregando(true);
+
+      const usuarioAdicionado = await adicionarUsuario({
         nome: novoUsuario.nome,
         email: novoUsuario.email,
         senha: novoUsuario.senha,
@@ -54,32 +67,28 @@ export default function GerenciarUsuarios({ onVoltar, usuario }: GerenciarUsuari
         ativo: true
       });
 
-      // Atualizar lista apenas com usuários reais
-      const usuariosReais = usuarios.filter(u => 
-        !['joao@imobiliaria.com', 'maria@imobiliaria.com', 'pedro@imobiliaria.com', 'eduarmito790@gmail.com'].includes(u.email)
-      );
-      setListaUsuarios(usuariosReais);
-      setNovoUsuario({ nome: '', email: '', senha: '', cargo: 'corretor' });
-      alert('Usuário adicionado com sucesso!');
+      if (usuarioAdicionado) {
+        setNovoUsuario({ nome: '', email: '', senha: '', cargo: 'corretor' });
+        alert('Usuário adicionado com sucesso!');
+      } else {
+        alert('Erro ao adicionar usuário. Verifique se o email não está duplicado.');
+      }
+
+      setCarregando(false);
     } else {
       alert('Por favor, preencha todos os campos.');
     }
   };
 
-  const handleRemoverUsuario = (usuarioId: string) => {
+  const handleRemoverUsuario = async (usuarioId: string) => {
     if (usuarioId === usuario.id) {
       alert('Você não pode remover seu próprio usuário.');
       return;
     }
 
     if (confirm('Tem certeza que deseja remover este usuário?')) {
-      const sucesso = removerUsuario(usuarioId, usuario);
+      const sucesso = await removerUsuarioSupabase(usuarioId);
       if (sucesso) {
-        // Atualizar lista apenas com usuários reais
-        const usuariosReais = usuarios.filter(u => 
-          !['joao@imobiliaria.com', 'maria@imobiliaria.com', 'pedro@imobiliaria.com', 'eduarmito790@gmail.com'].includes(u.email)
-        );
-        setListaUsuarios(usuariosReais);
         alert('Usuário removido com sucesso!');
       } else {
         alert('Erro ao remover usuário.');
@@ -143,10 +152,17 @@ export default function GerenciarUsuarios({ onVoltar, usuario }: GerenciarUsuari
             </select>
             <button
               onClick={handleAdicionarUsuario}
-              className="bg-gradient-to-r from-green-600 to-teal-600 text-white px-4 py-2 rounded-lg font-medium hover:from-green-700 hover:to-teal-700 transition-all flex items-center justify-center gap-2"
+              disabled={carregando}
+              className="bg-gradient-to-r from-green-600 to-teal-600 text-white px-4 py-2 rounded-lg font-medium hover:from-green-700 hover:to-teal-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Plus className="w-4 h-4" />
-              Adicionar
+              {carregando ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <>
+                  <Plus className="w-4 h-4" />
+                  Adicionar
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -221,7 +237,7 @@ export default function GerenciarUsuarios({ onVoltar, usuario }: GerenciarUsuari
             <li>• Você não pode remover seu próprio usuário</li>
             <li>• Administradores têm acesso completo ao sistema</li>
             <li>• Corretores podem apenas visualizar e usar chaves</li>
-            <li>• Os usuários de demonstração não aparecem nesta lista</li>
+            <li>• Todas as alterações são salvas automaticamente no banco de dados</li>
           </ul>
         </div>
       </div>
